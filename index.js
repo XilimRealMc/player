@@ -23,21 +23,29 @@ let refreshInterval = null;
 
 client.once('ready', () => {
     console.log(`Bot login sebagai ${client.user.tag}`);
-    updateStatus(); 
-    setInterval(updateStatus, 60000); 
+    
+    // Jalankan fungsi update kurs untuk status profil bot
+    updateKurs();
+    setInterval(updateKurs, 60000); 
 });
 
+// --- FUNGSI UPDATE STATUS WATCHING USD ---
+async function updateKurs() {
+    try {
+        const res = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
+        const kursIdr = res.data.rates.IDR.toLocaleString('id-ID', { style: 'currency', currency: 'IDR' });
+        
+        client.user.setActivity(`${kursIdr} / USD`, { type: ActivityType.Watching });
+    } catch (error) {
+        console.error('Gagal narik data kurs:', error.message);
+    }
+}
+
+// --- FUNGSI TARIK DATA FIVEM ---
 async function updateStatus() {
     try {
         const response = await axios.get(`${cfxEndpoint}?t=${Date.now()}`);
-        const serverData = response.data.Data;
-        const totalPlayers = serverData.clients;
-        const maxPlayers = serverData.sv_maxclients;
-
-        // Bikin status "Watching [xx/128] on SUNDA PRIDE"
-        client.user.setActivity(`[${totalPlayers}/${maxPlayers}] on SUNDA PRIDE`, { type: ActivityType.Watching });
-        
-        return serverData;
+        return response.data.Data;
     } catch (error) {
         console.error('Gagal update status utama:', error.message);
         return null;
