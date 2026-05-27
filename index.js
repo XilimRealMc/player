@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
 
@@ -19,64 +19,80 @@ const client = new Client({
 
 const cfxEndpoint = 'https://servers-frontend.fivem.net/api/servers/single/e6e6lmp';
 let liveMessage = null;
+let refreshInterval = null; // Biar looping ga tumpang tindih
 
 client.once('ready', () => {
-    console.log(`Bot berhasil login sebagai ${client.user.tag}`);
+    console.log(`Bot login sebagai ${client.user.tag}`);
+    updateStatus(); // Tarik data buat update profil bot pas baru nyala
+    setInterval(updateStatus, 60000); // Update profil bot tiap 1 menit otomatis
 });
 
-// Fungsi untuk menarik data dan membuat embed
-async function createStatusEmbed() {
+async function updateStatus() {
     try {
-        const response = await axios.get(`${cfxEndpoint}?t=${Date.now()}`); // Bypass cache
+        const response = await axios.get(`${cfxEndpoint}?t=${Date.now()}`);
         const serverData = response.data.Data;
-        
-        const players = serverData.players || [];
         const totalPlayers = serverData.clients;
         const maxPlayers = serverData.sv_maxclients;
 
-        let playerListText = "";
-        if (players.length > 0) {
-            players.forEach((p, index) => {
-                playerListText += `${index + 1}. **${p.name}** (ID: ${p.id} | Ping: ${p.ping}ms)\n`;
-            });
-        } else {
-            playerListText = "Lagi sepi, ga ada warga yang online.";
-        }
-
-        const waktuLokal = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-
-        return new EmbedBuilder()
-            .setTitle(`🟢 Sunda Pride Roleplay Status (LIVE)`)
-            .setColor(0x00FF00)
-            .setDescription(`**Player Online:** ${totalPlayers}/${maxPlayers}\n\n**Daftar Warga:**\n${playerListText}`)
-            .setFooter({ text: `Auto-refresh tiap 60 detik • Update terakhir: Jam ${waktuLokal} WIB`, iconURL: serverData.ownerAvatar });
-            
+        // Bikin status "Watching [xx/128] on SUNDA PRIDE"
+        client.user.setActivity(`[${totalPlayers}/${maxPlayers}] on SUNDA PRIDE`, { type: ActivityType.Watching });
+        
+        return serverData; // Kirim data buat dipakai di embed
     } catch (error) {
-        console.error('Gagal mengambil data:', error.message);
+        console.error('Gagal update status utama:', error.message);
         return null;
     }
+}
+
+async function createStatusEmbed(serverData) {
+    if (!serverData) return null;
+
+    const players = serverData.players || [];
+    let playerListText = "";
+    
+    if (players.length > 0) {
+        players.forEach((p, index) => {
+            playerListText += `${index + 1}. **${p.name}** (ID: ${p.id} | Ping: ${p.ping}ms)\n`;
+        });
+    } else {
+        playerListText = "Lagi sepi, ga ada warga yang online.";
+    }
+
+    // Setting jam WIB sesuai request
+    const waktuLokal = new Date().toLocaleTimeString('id-ID', { 
+        timeZone: 'Asia/Jakarta', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+
+    return new EmbedBuilder()
+        .setTitle(`🟢 Sunda Pride Roleplay Status (LIVE)`)
+        .setColor(0x00FF00)
+        .setDescription(`**Player Online:** ${serverData.clients}/${serverData.sv_maxclients}\n\n**Daftar Warga:**\n${playerListText}`)
+        .setFooter({ text: `Auto-refresh tiap 60 detik • Update: Jam ${waktuLokal} WIB`, iconURL: serverData.ownerAvatar });
 }
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // Ketik !live untuk memunculkan pesan auto-refresh
     if (message.content === '!live') {
-        const embed = await createStatusEmbed();
-        if (!embed) return message.channel.send('Gagal mengambil data awal dari server.');
+        const serverData = await updateStatus();
+        const embed = await createStatusEmbed(serverData);
+        if (!embed) return message.channel.send('Gagal narik data dari server.');
 
-        // Kirim pesan status utama
+        // Kalau ada pesan lama, biarin aja, kita timpa variabelnya pakai pesan baru
         liveMessage = await message.channel.send({ embeds: [embed] });
-        
-        // Hapus command !live dari chat biar channel tetap bersih
         message.delete().catch(() => {});
 
-        // Jalankan perulangan otomatis tiap 60 detik (60000 ms)
-        setInterval(async () => {
+        // Hapus interval lama biar ga spam kalau !live diketik berkali-kali
+        if (refreshInterval) clearInterval(refreshInterval);
+
+        refreshInterval = setInterval(async () => {
             if (liveMessage) {
-                const updatedEmbed = await createStatusEmbed();
-                if (updatedEmbed) {
-                    await liveMessage.edit({ embeds: [updatedEmbed] }).catch(err => console.error('Gagal edit pesan:', err.message));
+                const newData = await updateStatus();
+                const newEmbed = await createStatusEmbed(newData);
+                if (newEmbed) {
+                    await liveMessage.edit({ embeds: [newEmbed] }).catch(err => console.error('Gagal edit pesan:', err.message));
                 }
             }
         }, 60000);
