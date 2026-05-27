@@ -19,12 +19,12 @@ const client = new Client({
 
 const cfxEndpoint = 'https://servers-frontend.fivem.net/api/servers/single/e6e6lmp';
 let liveMessage = null;
-let refreshInterval = null; // Biar looping ga tumpang tindih
+let refreshInterval = null;
 
 client.once('ready', () => {
     console.log(`Bot login sebagai ${client.user.tag}`);
-    updateStatus(); // Tarik data buat update profil bot pas baru nyala
-    setInterval(updateStatus, 60000); // Update profil bot tiap 1 menit otomatis
+    updateStatus(); 
+    setInterval(updateStatus, 60000); 
 });
 
 async function updateStatus() {
@@ -37,7 +37,7 @@ async function updateStatus() {
         // Bikin status "Watching [xx/128] on SUNDA PRIDE"
         client.user.setActivity(`[${totalPlayers}/${maxPlayers}] on SUNDA PRIDE`, { type: ActivityType.Watching });
         
-        return serverData; // Kirim data buat dipakai di embed
+        return serverData;
     } catch (error) {
         console.error('Gagal update status utama:', error.message);
         return null;
@@ -48,6 +48,10 @@ async function createStatusEmbed(serverData) {
     if (!serverData) return null;
 
     const players = serverData.players || [];
+    
+    // Urutkan pemain berdasarkan ID (terkecil ke terbesar)
+    players.sort((a, b) => a.id - b.id);
+    
     let playerListText = "";
     
     if (players.length > 0) {
@@ -58,7 +62,7 @@ async function createStatusEmbed(serverData) {
         playerListText = "Lagi sepi, ga ada warga yang online.";
     }
 
-    // Setting jam WIB sesuai request
+    // Setting jam WIB
     const waktuLokal = new Date().toLocaleTimeString('id-ID', { 
         timeZone: 'Asia/Jakarta', 
         hour: '2-digit', 
@@ -80,11 +84,9 @@ client.on('messageCreate', async (message) => {
         const embed = await createStatusEmbed(serverData);
         if (!embed) return message.channel.send('Gagal narik data dari server.');
 
-        // Kalau ada pesan lama, biarin aja, kita timpa variabelnya pakai pesan baru
         liveMessage = await message.channel.send({ embeds: [embed] });
         message.delete().catch(() => {});
 
-        // Hapus interval lama biar ga spam kalau !live diketik berkali-kali
         if (refreshInterval) clearInterval(refreshInterval);
 
         refreshInterval = setInterval(async () => {
