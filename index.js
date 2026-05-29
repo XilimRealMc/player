@@ -17,7 +17,7 @@ const client = new Client({
     ]
 });
 
-const cfxEndpoint = 'https://servers-frontend.fivem.net/api/servers/single/e6e6lmp';
+const cfxEndpoint = 'https://servers-frontend.fivem.net/api/servers/single/vq3eb9e';
 let liveMessage = null;
 let refreshInterval = null;
 
