@@ -1,7 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
-const cheerio = require('cheerio');
 
 // ================================================================
 // DUMMY WEB SERVER UNTUK RAILWAY
@@ -26,7 +25,7 @@ const client = new Client({
 // CONFIG
 // ================================================================
 const CFX_JOIN_URL     = 'https://cfx.re/join/e6e6lmp';
-const FIVEM_TIMEOUT    = 15000;  // 15 detik — scrape HTML jauh lebih cepet
+const FIVEM_TIMEOUT    = 15000;
 const KURS_TIMEOUT     = 8000;
 const REFRESH_INTERVAL = 60000;
 const MAX_RETRIES      = 3;
@@ -35,17 +34,13 @@ const RETRY_DELAY      = 3000;
 const liveMessages     = new Map();
 const refreshIntervals = new Map();
 
-// Headers biar keliatan kayak browser beneran
 const BROWSER_HEADERS = {
     'User-Agent':                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept':                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept':                    'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language':           'id-ID,id;q=0.9,en-US;q=0.8',
     'Accept-Encoding':           'gzip, deflate, br',
     'Connection':                'keep-alive',
     'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest':            'document',
-    'Sec-Fetch-Mode':            'navigate',
-    'Sec-Fetch-Site':            'none',
     'Cache-Control':             'no-cache'
 };
 
@@ -77,7 +72,8 @@ async function updateKurs() {
 }
 
 // ================================================================
-// SCRAPE JUMLAH PLAYER DARI cfx.re/join
+// SCRAPE PLAYER COUNT DARI cfx.re/join — tanpa cheerio
+// Pakai regex langsung ke HTML mentah
 // ================================================================
 async function updateStatus() {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -89,15 +85,14 @@ async function updateStatus() {
                 headers: BROWSER_HEADERS
             });
 
-            // Parse HTML, ambil angka dari <span class="players">
-            const $       = cheerio.load(res.data);
-            const rawText = $('span.players').text().trim();
+            const html = res.data;
 
-            // Ambil angka saja dari teks (misal "2" atau "people_outline 2")
-            const match = rawText.match(/\d+/);
-            if (!match) throw new Error(`Tidak ada angka di span.players: "${rawText}"`);
+            // Cari <span class="players"> ... angka ... </span>
+            // Dari inspeksi HTML: <span class="players"><span ...>people_outline</span>\n2\n</span>
+            const match = html.match(/class="players"[^>]*>[\s\S]*?(\d+)[\s\S]*?<\/span>/);
+            if (!match) throw new Error('Tidak bisa parse jumlah player dari HTML');
 
-            const count = parseInt(match[0], 10);
+            const count = parseInt(match[1], 10);
             console.log(`[CFX] OK: ${count} player online`);
             return { clients: count };
 
