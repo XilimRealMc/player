@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder, ActivityType } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
+const cheerio = require('cheerio');
 
 // ================================================================
 // DUMMY WEB SERVER UNTUK RAILWAY
@@ -24,16 +25,29 @@ const client = new Client({
 // ================================================================
 // CONFIG
 // ================================================================
-const SERVER_IP        = '151.243.226.39';
-const SERVER_PORT      = 30120;
-const FIVEM_TIMEOUT    = 120000; // 2 menit
+const CFX_JOIN_URL     = 'https://cfx.re/join/e6e6lmp';
+const FIVEM_TIMEOUT    = 15000;  // 15 detik — scrape HTML jauh lebih cepet
 const KURS_TIMEOUT     = 8000;
-const REFRESH_INTERVAL = 60000;  // 60 detik
+const REFRESH_INTERVAL = 60000;
 const MAX_RETRIES      = 3;
-const RETRY_DELAY      = 5000;
+const RETRY_DELAY      = 3000;
 
 const liveMessages     = new Map();
 const refreshIntervals = new Map();
+
+// Headers biar keliatan kayak browser beneran
+const BROWSER_HEADERS = {
+    'User-Agent':                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language':           'id-ID,id;q=0.9,en-US;q=0.8',
+    'Accept-Encoding':           'gzip, deflate, br',
+    'Connection':                'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest':            'document',
+    'Sec-Fetch-Mode':            'navigate',
+    'Sec-Fetch-Site':            'none',
+    'Cache-Control':             'no-cache'
+};
 
 // ================================================================
 // READY
@@ -63,37 +77,44 @@ async function updateKurs() {
 }
 
 // ================================================================
-// TARIK DATA FIVEM — hanya players.json (lebih ringan)
+// SCRAPE JUMLAH PLAYER DARI cfx.re/join
 // ================================================================
 async function updateStatus() {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`[FIVEM] Attempt ${attempt}/${MAX_RETRIES}...`);
+            console.log(`[CFX] Attempt ${attempt}/${MAX_RETRIES}...`);
 
-            const res = await axios.get(
-                `http://${SERVER_IP}:${SERVER_PORT}/players.json`,
-                { timeout: FIVEM_TIMEOUT }
-            );
+            const res = await axios.get(CFX_JOIN_URL, {
+                timeout: FIVEM_TIMEOUT,
+                headers: BROWSER_HEADERS
+            });
 
-            if (!Array.isArray(res.data)) throw new Error('Response bukan array');
+            // Parse HTML, ambil angka dari <span class="players">
+            const $       = cheerio.load(res.data);
+            const rawText = $('span.players').text().trim();
 
-            console.log(`[FIVEM] OK: ${res.data.length} player online`);
-            return { clients: res.data.length };
+            // Ambil angka saja dari teks (misal "2" atau "people_outline 2")
+            const match = rawText.match(/\d+/);
+            if (!match) throw new Error(`Tidak ada angka di span.players: "${rawText}"`);
+
+            const count = parseInt(match[0], 10);
+            console.log(`[CFX] OK: ${count} player online`);
+            return { clients: count };
 
         } catch (error) {
-            console.warn(`[FIVEM] Attempt ${attempt} gagal: ${error.message}`);
+            console.warn(`[CFX] Attempt ${attempt} gagal: ${error.message}`);
             if (attempt < MAX_RETRIES) {
-                console.log(`[FIVEM] Retry dalam ${RETRY_DELAY / 1000} detik...`);
+                console.log(`[CFX] Retry dalam ${RETRY_DELAY / 1000} detik...`);
                 await sleep(RETRY_DELAY);
             }
         }
     }
-    console.error('[FIVEM] Semua attempt gagal');
+    console.error('[CFX] Semua attempt gagal');
     return null;
 }
 
 // ================================================================
-// BUAT EMBED — simple, hanya jumlah player
+// BUAT EMBED
 // ================================================================
 function createStatusEmbed(data, isLoading = false) {
     const waktu = new Date().toLocaleTimeString('id-ID', {
@@ -107,7 +128,7 @@ function createStatusEmbed(data, isLoading = false) {
             .setTitle('⏳ Sunda Pride Roleplay — Fetching...')
             .setColor(0xFFFF00)
             .setDescription('Sedang mengambil data server...')
-            .setFooter({ text: 'Harap tunggu, bisa memakan waktu hingga 2 menit' })
+            .setFooter({ text: 'Harap tunggu sebentar' })
             .setTimestamp();
     }
 
@@ -181,17 +202,14 @@ client.on('messageCreate', async (message) => {
                 refreshIntervals.delete(channelId);
                 return;
             }
-
             const newData  = await updateStatus();
             const newEmbed = createStatusEmbed(newData);
-
             await targetMsg.edit({ embeds: [newEmbed] }).catch(err => {
-                console.error('[LIVE] Gagal edit embed refresh:', err.message);
+                console.error('[LIVE] Gagal edit refresh:', err.message);
                 if (err.code === 10008) {
                     liveMessages.delete(channelId);
                     clearInterval(refreshIntervals.get(channelId));
                     refreshIntervals.delete(channelId);
-                    console.log(`[LIVE] Pesan dihapus manual, cleanup channel ${channelId}`);
                 }
             });
         }, REFRESH_INTERVAL);
